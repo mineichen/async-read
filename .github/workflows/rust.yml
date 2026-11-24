@@ -1,0 +1,92 @@
+name: Rust
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+    branches: ["main"]
+  # Only runs the job `miri_latest`
+  schedule:
+    - cron: "17 3 * * *"
+
+jobs:
+  test:
+    if: github.event_name != 'schedule'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: DeterminateSystems/nix-installer-action@main
+
+      - uses: DeterminateSystems/magic-nix-cache-action@main
+
+      - name: Test with the MSRV
+        run: nix run .#test
+
+      - name: Test with stable
+        run: nix run .#test-stable
+
+  lint:
+    if: github.event_name != 'schedule'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: DeterminateSystems/nix-installer-action@main
+
+      - uses: DeterminateSystems/magic-nix-cache-action@main
+
+      - name: Clippy and rustdoc without warnings
+        run: nix run .#lint
+
+  no_std:
+    if: github.event_name != 'schedule'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: DeterminateSystems/nix-installer-action@main
+
+      - uses: DeterminateSystems/magic-nix-cache-action@main
+
+      - name: Build for a target without std
+        run: nix run .#no-std
+
+  test_miri:
+    if: github.event_name != 'schedule'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: DeterminateSystems/nix-installer-action@main
+
+      - uses: DeterminateSystems/magic-nix-cache-action@main
+
+      - name: Run Miri tests with Stacked Borrows
+        run: nix run .#miri
+
+      - name: Run Miri tests with Tree Borrows
+        run: nix run .#miri
+        env:
+          MIRIFLAGS: -Zmiri-tree-borrows
+
+  # The nightly of the jobs above is pinned by flake.lock, so they don't notice if Rust changes
+  # what this crate relies on: that a `&mut T` isn't unique unless `T` is `Unpin` (see `Aliased`
+  # in src/shared.rs). This job does, as it runs Miri of the latest nightly every night.
+  miri_latest:
+    if: github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: DeterminateSystems/nix-installer-action@main
+
+      - uses: DeterminateSystems/magic-nix-cache-action@main
+
+      - name: Run Miri tests with Stacked Borrows
+        run: nix run --override-input fenix github:nix-community/fenix .#miri
+
+      - name: Run Miri tests with Tree Borrows
+        run: nix run --override-input fenix github:nix-community/fenix .#miri
+        env:
+          MIRIFLAGS: -Zmiri-tree-borrows

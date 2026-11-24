@@ -1,0 +1,28 @@
+[package]
+name = "async-read"
+version = "0.1.0"
+edition = "2024"
+# Keep in sync with `rustMsrvChannel` in flake.nix
+rust-version = "1.85"
+license = "MIT"
+description = "Drive an AsyncRead with a future"
+repository = "https://github.com/mineichen/async-read"
+keywords = ["async", "io", "no_std", "futures"]
+categories = ["asynchronous", "no-std::no-alloc"]
+# Nothing else is published, e.g. neither flake.nix nor .github
+include = ["/src", "/tests", "/README.md", "/LICENSE"]
+
+[features]
+default = ["futures-io"]
+# Implements `futures_io::AsyncRead` for `Reader` and `futures_io::AsyncWrite` for `Writer`.
+# Requires `std`, because `futures-io` only provides its traits with `std`.
+futures-io = ["dep:futures-io"]
+
+[dependencies]
+futures-io = { version = "0.3", optional = true }
+
+[dev-dependencies]
+futures = "0.3"
+
+[package.metadata.docs.rs]
+all-features = true
