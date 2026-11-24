@@ -94,6 +94,7 @@ impl<'w> Writer<'w> {
     /// # Errors
     ///
     /// Fails with [`Closed`] if the reader was closed or is being dropped.
+    #[inline]
     pub fn poll_write(&mut self, cx: &mut Context<'_>, buf: &[u8]) -> Poll<Result<usize, Closed>> {
         self.poll_write_all_of(cx, [buf])
     }
@@ -110,6 +111,7 @@ impl<'w> Writer<'w> {
     /// is left to be returned.
     ///
     /// Wakers are treated as by [`poll_write`](Self::poll_write).
+    #[inline]
     pub fn poll_flush(&mut self, cx: &mut Context<'_>) -> Poll<()> {
         let shared = self.shared();
         if shared.has_unread() {

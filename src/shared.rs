@@ -80,6 +80,7 @@ impl Shared {
     /// Wakes the writer that waits for the next buffer.
     ///
     /// Waking runs foreign code, which might panic. Call this before [`publish`](Self::publish).
+    #[inline]
     pub(crate) fn wake_parked(&self) {
         if let Some(waker) = self.parked.take() {
             waker.wake();
@@ -87,6 +88,7 @@ impl Shared {
     }
 
     /// Drops the waker of the writer that waits for the next buffer, without waking it.
+    #[inline]
     pub(crate) fn forget_parked(&self) {
         drop(self.parked.take());
     }
@@ -97,6 +99,7 @@ impl Shared {
     /// # Safety
     ///
     /// The guard must be dropped, not leaked: the pointers stay published until then.
+    #[inline]
     pub(crate) unsafe fn publish<'a>(
         &'a self,
         buf: Option<&'a mut [u8]>,
@@ -182,12 +185,14 @@ pub(crate) struct Published<'a> {
 
 impl Published<'_> {
     /// Withdraws the buffer and returns the number of bytes written to it.
+    #[inline]
     pub(crate) fn withdraw(self) -> usize {
         self.shared.cursor.get().addr() - self.shared.start.get().addr()
     }
 }
 
 impl Drop for Published<'_> {
+    #[inline]
     fn drop(&mut self) {
         self.shared.start.set(ptr::null_mut());
         self.shared.cursor.set(ptr::null_mut());

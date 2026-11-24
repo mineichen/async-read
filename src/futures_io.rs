@@ -33,6 +33,7 @@ where
 /// the reader only reaches its end when the producer's future completes, which is also when
 /// it returns what was written last.
 impl AsyncWrite for Writer<'_> {
+    #[inline]
     fn poll_write(
         self: Pin<&mut Self>,
         cx: &mut Context<'_>,
@@ -41,6 +42,7 @@ impl AsyncWrite for Writer<'_> {
         Writer::poll_write(self.get_mut(), cx, buf).map_err(Into::into)
     }
 
+    #[inline]
     fn poll_write_vectored(
         self: Pin<&mut Self>,
         cx: &mut Context<'_>,
@@ -51,10 +53,12 @@ impl AsyncWrite for Writer<'_> {
             .map_err(Into::into)
     }
 
+    #[inline]
     fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
         Writer::poll_flush(self.get_mut(), cx).map(Ok)
     }
 
+    #[inline]
     fn poll_close(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<io::Result<()>> {
         Poll::Ready(Ok(()))
     }
