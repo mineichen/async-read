@@ -9,19 +9,22 @@ use core::task::{Context, Poll};
 use crate::Writer;
 use crate::shared::{Aliased, Shared};
 
-/// A callable accepted by [`Reader::new`]: it takes a [`Writer<'w>`](Writer) and returns a
+/// A callable accepted by [`Reader::new`]: it takes a [`Writer`] of any lifetime and returns a
 /// future that resolves to a `Result<(), E>`.
 ///
 /// This is implemented for every async closure and `async fn` of that shape, and for every `fn`
 /// that returns such a future, like `fn(Writer<'_>) -> MyFuture<'_>`. The trait itself cannot
-/// be implemented by hand. A bound on it has to hold for every lifetime of the writer:
-/// `F: for<'w> Producer<'w, E>`.
+/// be implemented by hand.
+///
+/// It is what the type of a [`Reader`] is named with, for example as
+/// `Reader<impl Producer<io::Error>, io::Error>`.
 ///
 /// The trait only exists because the future returned through [`AsyncFnOnce`] cannot be named
 /// yet, which the reader has to do in order to store it.
-pub trait Producer<'w, E>: sealed::Sealed<'w, E> {}
+// For every lifetime: that is what keeps the writer within the future, see `Reader`
+pub trait Producer<E>: for<'w> sealed::Sealed<'w, E> {}
 
-impl<'w, E, F> Producer<'w, E> for F where F: sealed::Sealed<'w, E> {}
+impl<E, F> Producer<E> for F where F: for<'w> sealed::Sealed<'w, E> {}
 
 mod sealed {
     use core::future::Future;
@@ -79,10 +82,10 @@ type FutureOf<F, E> = <F as sealed::Sealed<'static, E>>::Future;
 #[must_use = "readers do nothing unless polled"]
 pub struct Reader<F, E>
 where
-    // The writer points into the reader, so it must not leave the future. A producer that
-    // works for every lifetime cannot have put it anywhere that outlives the future, nor into
-    // `E`, which is the same for all of them.
-    F: for<'w> Producer<'w, E>,
+    // The writer points into the reader, so it must not leave the future. A producer works
+    // for every lifetime of the writer, so it cannot have put it anywhere that outlives the
+    // future, nor into `E`, which is the same for all of them.
+    F: Producer<E>,
 {
     // Dropped before `shared`, which the future points to.
     //
@@ -122,11 +125,11 @@ impl<F, Fut, E> State<F, Fut, E> {
 
 // SAFETY: Nothing can be done with a `&Reader`: no method takes `&self`, and `Debug` reads no
 // field. It has to stay that way.
-unsafe impl<F, E> Sync for Reader<F, E> where F: for<'w> Producer<'w, E> {}
+unsafe impl<F, E> Sync for Reader<F, E> where F: Producer<E> {}
 
 impl<F, E> Reader<F, E>
 where
-    F: for<'w> Producer<'w, E>,
+    F: Producer<E>,
 {
     /// Creates a reader that yields what `producer` writes.
     ///
@@ -298,7 +301,7 @@ where
 
 impl<F, E> fmt::Debug for Reader<F, E>
 where
-    F: for<'w> Producer<'w, E>,
+    F: Producer<E>,
 {
     // Must not read any field, see the implementation of `Sync`
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {

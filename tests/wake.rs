@@ -14,7 +14,7 @@ use async_read::Reader;
 use futures::future::{FutureExt, LocalBoxFuture};
 use futures::stream::{FuturesUnordered, StreamExt};
 use futures::{AsyncReadExt, AsyncWriteExt};
-use util::{close, counting_waker, pattern, read, read_chunks, yield_now};
+use util::{close, counting_waker, pattern, read, read_chunks, strings, yield_now};
 
 fn len() -> usize {
     if cfg!(miri) { 100 } else { 10_000 }
@@ -56,6 +56,27 @@ fn closing_wakes_writer_within_futures_unordered() {
     assert_eq!(7, read(&mut reader, 7).unwrap().len());
     let error = close(&mut reader).unwrap_err();
     assert_eq!(io::ErrorKind::BrokenPipe, error.kind());
+}
+
+#[test]
+fn flush_within_futures_unordered() {
+    let mut reader = pin!(Reader::new(async |mut w| {
+        let mut tasks = FuturesUnordered::<LocalBoxFuture<'_, io::Result<()>>>::new();
+        tasks.push(Box::pin(async {
+            w.write_all(b"ab").await?;
+            w.flush().await?;
+            w.write_all(b"cd").await?;
+            w.flush().await
+        }));
+        while let Some(result) = tasks.next().await {
+            result?;
+        }
+        io::Result::Ok(())
+    }));
+    assert_eq!(
+        vec!["ab", "cd"],
+        strings(read_chunks(&mut reader, 8).unwrap())
+    );
 }
 
 #[test]

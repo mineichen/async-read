@@ -13,6 +13,7 @@ use crate::shared::{NoRoom, Shared};
 /// With the `futures-io` feature it converts into an [`std::io::Error`] of kind
 /// [`BrokenPipe`](std::io::ErrorKind::BrokenPipe).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[non_exhaustive]
 pub struct Closed;
 
 impl fmt::Display for Closed {
@@ -31,10 +32,13 @@ impl core::error::Error for Closed {}
 ///
 /// Nothing is buffered: bytes are copied straight into the buffer the reader is currently
 /// filling. When that buffer is full, writing is pending until the reader is read from again.
+/// The reader returns what was written as soon as the future is pending or completes, which
+/// [`poll_flush`](Self::poll_flush) is there to bring about.
 ///
 /// With the `futures-io` feature (enabled by default) this implements
-/// [`AsyncWrite`](futures_io::AsyncWrite). [`poll_write`](Self::poll_write) is the same
-/// operation without `std`, failing with [`Closed`] instead of an [`std::io::Error`].
+/// [`AsyncWrite`](futures_io::AsyncWrite). [`poll_write`](Self::poll_write) and
+/// [`poll_flush`](Self::poll_flush) are the same operations without `std`, which do not fail
+/// with an [`std::io::Error`].
 pub struct Writer<'w> {
     shared: NonNull<Shared>,
     /// Covariant, like a reference to the reader
@@ -92,6 +96,28 @@ impl<'w> Writer<'w> {
     /// Fails with [`Closed`] if the reader was closed or is being dropped.
     pub fn poll_write(&mut self, cx: &mut Context<'_>, buf: &[u8]) -> Poll<Result<usize, Closed>> {
         self.poll_write_all_of(cx, [buf])
+    }
+
+    /// Waits until the reader has returned everything that was written.
+    ///
+    /// The reader only returns what was written once the producer's future is pending or
+    /// completes. So if the future goes on without waiting for anything, what it wrote is not
+    /// read until the buffer is full. This is what makes the future pending: if something was
+    /// written since the reader was last read from, this is pending until it is read from
+    /// again or closed. Otherwise this is ready right away.
+    ///
+    /// It never fails. If the reader was closed or is being dropped, nothing that was written
+    /// is left to be returned.
+    ///
+    /// Wakers are treated as by [`poll_write`](Self::poll_write).
+    pub fn poll_flush(&mut self, cx: &mut Context<'_>) -> Poll<()> {
+        let shared = self.shared();
+        if shared.has_unread() {
+            shared.park(cx);
+            Poll::Pending
+        } else {
+            Poll::Ready(())
+        }
     }
 
     /// Writes as much of `bufs` as fits, as if they were one buffer.

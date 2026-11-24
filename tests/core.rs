@@ -36,6 +36,22 @@ fn read_what_is_written() {
 }
 
 #[test]
+fn flushing_ends_the_read() {
+    let mut reader = pin!(Reader::new(async |mut w| -> Result<(), Error> {
+        write_all(&mut w, b"ab").await?;
+        poll_fn(|cx| w.poll_flush(cx)).await;
+        // Nothing was written since
+        poll_fn(|cx| w.poll_flush(cx)).await;
+        write_all(&mut w, b"cd").await?;
+        Ok(())
+    }));
+    assert_eq!(
+        vec!["ab", "cd"],
+        strings(read_chunks(&mut reader, 8).unwrap())
+    );
+}
+
+#[test]
 fn async_fn_as_producer() {
     async fn produce(mut w: Writer<'_>) -> Result<(), Closed> {
         write_all(&mut w, b"abc").await
@@ -67,7 +83,7 @@ fn closing_fails_writes() {
     assert_eq!(Ok(()), close(&mut reader));
 }
 
-/// Besides the future, a reader is five pointers, and one more for its state.
+/// Besides the future, a reader is six pointers, and one more for its state.
 #[test]
 fn size_of_a_reader() {
     use std::future::Future;
@@ -91,7 +107,7 @@ fn size_of_a_reader() {
 
     let reader = Reader::new(produce);
     assert_eq!(
-        size_of::<Plain>() + 6 * size_of::<usize>(),
+        size_of::<Plain>() + 7 * size_of::<usize>(),
         size_of_val(&reader)
     );
     assert_eq!(size_of::<usize>(), size_of::<Writer<'_>>());

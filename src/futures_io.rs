@@ -16,7 +16,7 @@ impl From<Closed> for io::Error {
 
 impl<F, E> AsyncRead for Reader<F, E>
 where
-    F: for<'w> Producer<'w, E>,
+    F: Producer<E>,
     E: Into<io::Error>,
 {
     fn poll_read(
@@ -28,9 +28,10 @@ where
     }
 }
 
-/// [`poll_flush`](AsyncWrite::poll_flush) and [`poll_close`](AsyncWrite::poll_close) do
-/// nothing: nothing is buffered, and the reader only reaches its end when the producer's
-/// future completes.
+/// [`poll_flush`](AsyncWrite::poll_flush) waits until the reader has returned what was
+/// written, see [`Writer::poll_flush`]. [`poll_close`](AsyncWrite::poll_close) does nothing:
+/// the reader only reaches its end when the producer's future completes, which is also when
+/// it returns what was written last.
 impl AsyncWrite for Writer<'_> {
     fn poll_write(
         self: Pin<&mut Self>,
@@ -50,8 +51,8 @@ impl AsyncWrite for Writer<'_> {
             .map_err(Into::into)
     }
 
-    fn poll_flush(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<io::Result<()>> {
-        Poll::Ready(Ok(()))
+    fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        Writer::poll_flush(self.get_mut(), cx).map(Ok)
     }
 
     fn poll_close(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<io::Result<()>> {

@@ -35,6 +35,9 @@ impl Drop for WriteOnDrop<'_, '_> {
         // Writing nothing always works
         let empty = poll_once(|cx| self.writer.poll_write(cx, b""));
         assert_eq!(Poll::Ready(Ok(0)), empty);
+        // The reader is being dropped, or the future completes: nobody reads what was written
+        // anymore, or it is returned anyway. Either way there is nothing to wait for.
+        let _ = poll_once(|cx| self.writer.poll_flush(cx));
         let result = poll_once(|cx| self.writer.poll_write(cx, b"x"));
         self.result.set(Some(result));
     }
@@ -129,7 +132,10 @@ fn writing_fails_while_the_reader_is_dropped() {
         assert_eq!(8, read(&mut reader, 8).unwrap().len());
         assert_eq!(None, result.get());
     }
-    assert_eq!(Some(Poll::Ready(Err(Closed))), result.get());
+    assert!(matches!(
+        result.get(),
+        Some(Poll::Ready(Err(Closed { .. })))
+    ));
 }
 
 /// The variables of an async block are dropped by the poll which completes it, while the
@@ -187,6 +193,25 @@ fn closing_is_final() {
     assert_eq!(b"", &read(&mut reader, 8).unwrap()[..]);
     assert_eq!(Some(Err(io::ErrorKind::BrokenPipe)), second.get());
     close(&mut reader).unwrap();
+}
+
+/// What was written before was returned by the read, so there is nothing left to wait for
+#[test]
+fn closing_completes_a_pending_flush() {
+    let flushed = Cell::new(false);
+    let mut reader = pin!(Reader::new(async |mut w| {
+        w.write_all(b"a").await?;
+        w.flush().await?;
+        flushed.set(true);
+        w.write_all(b"b").await?;
+        io::Result::Ok(())
+    }));
+    assert_eq!(b"a", &read(&mut reader, 8).unwrap()[..]);
+    assert!(!flushed.get());
+
+    let error = close(&mut reader).unwrap_err();
+    assert_eq!(io::ErrorKind::BrokenPipe, error.kind());
+    assert!(flushed.get());
 }
 
 #[test]
@@ -373,7 +398,8 @@ fn panic_of_the_future_does_not_leave_the_buffer_behind() {
     assert_eq!(None, *ON_DROP.lock().unwrap());
     drop(reader);
     // Would have written to the buffer which does not exist anymore
-    assert_eq!(Some(Poll::Ready(Err(Closed))), *ON_DROP.lock().unwrap());
+    let on_drop = *ON_DROP.lock().unwrap();
+    assert!(matches!(on_drop, Some(Poll::Ready(Err(Closed { .. })))));
 }
 
 /// Waking must not happen while the writer can reach the buffer: if it panics, the buffer would
@@ -419,5 +445,8 @@ fn panic_of_a_waker_does_not_leave_the_buffer_behind() {
         assert_eq!(None, result.get());
     }
     // Would have written to the buffer which does not exist anymore
-    assert_eq!(Some(Poll::Ready(Err(Closed))), result.get());
+    assert!(matches!(
+        result.get(),
+        Some(Poll::Ready(Err(Closed { .. })))
+    ));
 }

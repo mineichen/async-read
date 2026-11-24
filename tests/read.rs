@@ -105,19 +105,49 @@ fn what_is_written_is_read_when_the_future_is_pending() {
 }
 
 #[test]
-fn flush_and_close_of_the_writer_do_nothing() {
+fn what_is_written_is_read_when_the_writer_is_flushed() {
     let mut reader = pin!(Reader::new(async |mut w| {
+        // Nothing was written yet
+        w.flush().await?;
         w.write_all(b"ab").await?;
         w.flush().await?;
+        // Nothing was written since
+        w.flush().await?;
         w.write_all(b"cd").await?;
-        w.close().await?;
         w.write_all(b"ef").await?;
+        w.flush().await?;
+        w.write_all(b"g").await?;
         io::Result::Ok(())
     }));
     assert_eq!(
-        vec!["abcdef"],
+        vec!["ab", "cdef", "g"],
         strings(read_chunks(&mut reader, 8).unwrap())
     );
+}
+
+#[test]
+fn flush_of_a_full_buffer() {
+    let mut reader = pin!(Reader::new(async |mut w| {
+        w.write_all(b"abcd").await?;
+        w.flush().await?;
+        w.write_all(b"efgh").await?;
+        w.flush().await
+    }));
+    assert_eq!(
+        vec!["abcd", "efgh"],
+        strings(read_chunks(&mut reader, 4).unwrap())
+    );
+}
+
+#[test]
+fn close_of_the_writer_does_nothing() {
+    let mut reader = pin!(Reader::new(async |mut w| {
+        w.write_all(b"ab").await?;
+        w.close().await?;
+        w.write_all(b"cd").await?;
+        io::Result::Ok(())
+    }));
+    assert_eq!(vec!["abcd"], strings(read_chunks(&mut reader, 8).unwrap()));
 }
 
 #[test]

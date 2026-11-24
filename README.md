@@ -40,6 +40,7 @@ synchronized.
 |---|---|
 | The future is pending | The read returns what the future has written so far |
 | The buffer is full | The writer waits for the next read |
+| The writer is flushed | The read returns what was written, and the future continues with the next read |
 | The future completes | The reader is at its end |
 | The future fails | What it wrote is read first, then the read fails with its error |
 | The reader is dropped | The future is dropped |
@@ -54,8 +55,10 @@ synchronized.
 - **The producer must be an async closure, an `async fn` or a `fn` returning a future**, each
   taking a `Writer<'_>`. A closure that returns an async block (`|w| async move { .. }`) is
   not accepted.
-- **Flushing and closing the writer do nothing.** Nothing is buffered, and the reader only
-  reaches its end when the future completes.
+- **Flush the writer if what was written should be read right away.** Otherwise it is only
+  read once the future is pending or completes, or the buffer is full.
+- **Closing the writer does nothing.** The reader only reaches its end when the future
+  completes.
 
 ## Stopping early
 

@@ -77,7 +77,7 @@ pub async fn write_all(writer: &mut Writer<'_>, mut buf: &[u8]) -> Result<(), Cl
 /// Reads once into a buffer of the given length.
 pub fn read<F, E>(reader: &mut Pin<&mut Reader<F, E>>, buf_len: usize) -> Result<Vec<u8>, E>
 where
-    F: for<'w> Producer<'w, E>,
+    F: Producer<E>,
 {
     let mut buf = vec![0; buf_len];
     let len = drive(|cx| reader.as_mut().poll_read(cx, &mut buf))?;
@@ -91,7 +91,7 @@ pub fn read_chunks<F, E>(
     buf_len: usize,
 ) -> Result<Vec<Vec<u8>>, E>
 where
-    F: for<'w> Producer<'w, E>,
+    F: Producer<E>,
 {
     let mut chunks = Vec::new();
     loop {
@@ -105,7 +105,7 @@ where
 
 pub fn close<F, E>(reader: &mut Pin<&mut Reader<F, E>>) -> Result<(), E>
 where
-    F: for<'w> Producer<'w, E>,
+    F: Producer<E>,
 {
     drive(|cx| reader.as_mut().poll_close(cx))
 }

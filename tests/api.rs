@@ -83,11 +83,11 @@ fn writer_is_passed_by_value_and_by_reference() {
 fn reader_is_named_by_its_producer_and_error() {
     struct Body<F, E>
     where
-        F: for<'w> Producer<'w, E>,
+        F: Producer<E>,
     {
         reader: Reader<F, E>,
     }
-    fn body() -> Body<impl for<'w> Producer<'w, io::Error>, io::Error> {
+    fn body() -> Body<impl Producer<io::Error>, io::Error> {
         Body {
             reader: Reader::new(async |mut w| {
                 w.write_all(b"abc").await?;

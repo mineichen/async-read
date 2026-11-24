@@ -42,13 +42,15 @@ impl<T> Aliased<T> {
 }
 
 pub(crate) struct Shared {
+    /// The start of the published buffer.
+    start: Cell<*mut u8>,
     /// Where the next byte is written. Null if nothing can be written.
     cursor: Cell<*mut u8>,
     /// The end of the published buffer.
     end: Cell<*mut u8>,
     /// The waker the reader is being polled with. Null if it is not being polled.
     reader: Cell<*const Waker>,
-    /// The waker of a writer that waits for room and is not woken by `reader`.
+    /// The waker of a writer that waits for the next buffer and is not woken by `reader`.
     parked: Cell<Option<Waker>>,
 }
 
@@ -67,6 +69,7 @@ pub(crate) enum NoRoom {
 impl Shared {
     pub(crate) const fn new() -> Self {
         Self {
+            start: Cell::new(ptr::null_mut()),
             cursor: Cell::new(ptr::null_mut()),
             end: Cell::new(ptr::null_mut()),
             reader: Cell::new(ptr::null()),
@@ -74,7 +77,7 @@ impl Shared {
         }
     }
 
-    /// Wakes the writer that waits for room.
+    /// Wakes the writer that waits for the next buffer.
     ///
     /// Waking runs foreign code, which might panic. Call this before [`publish`](Self::publish).
     pub(crate) fn wake_parked(&self) {
@@ -83,7 +86,7 @@ impl Shared {
         }
     }
 
-    /// Drops the waker of the writer that waits for room, without waking it.
+    /// Drops the waker of the writer that waits for the next buffer, without waking it.
     pub(crate) fn forget_parked(&self) {
         drop(self.parked.take());
     }
@@ -106,9 +109,9 @@ impl Shared {
         // The guard exists before anything is published
         let published = Published {
             shared: self,
-            start,
             _buf: PhantomData,
         };
+        self.start.set(start);
         self.cursor.set(start);
         self.end.set(end);
         self.reader.set(waker);
@@ -139,7 +142,15 @@ impl Shared {
         Ok(len)
     }
 
-    /// Arranges for the writer to be polled again once there is room.
+    /// Whether something was written which the reader has not returned yet. It returns it when
+    /// the buffer is withdrawn.
+    pub(crate) fn has_unread(&self) -> bool {
+        // Both are null if nothing is published
+        self.cursor.get() != self.start.get()
+    }
+
+    /// Arranges for the writer to be polled again the next time a buffer is published, which
+    /// is when there is room again and when everything written before was returned.
     ///
     /// Only the waker of the most recent call is kept.
     pub(crate) fn park(&self, cx: &Context<'_>) {
@@ -166,19 +177,19 @@ impl Shared {
 /// Withdraws the published buffer when dropped.
 pub(crate) struct Published<'a> {
     shared: &'a Shared,
-    start: *mut u8,
     _buf: PhantomData<&'a mut [u8]>,
 }
 
 impl Published<'_> {
     /// Withdraws the buffer and returns the number of bytes written to it.
     pub(crate) fn withdraw(self) -> usize {
-        self.shared.cursor.get().addr() - self.start.addr()
+        self.shared.cursor.get().addr() - self.shared.start.get().addr()
     }
 }
 
 impl Drop for Published<'_> {
     fn drop(&mut self) {
+        self.shared.start.set(ptr::null_mut());
         self.shared.cursor.set(ptr::null_mut());
         self.shared.end.set(ptr::null_mut());
         self.shared.reader.set(ptr::null());
